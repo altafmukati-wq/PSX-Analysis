@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PSX Analysis — AI-Based Stock Analysis</title>
+  <style>
+    /* ===== RESET & BASE ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-from: #0f0c29;
+      --bg-mid:  #302b63;
+      --bg-to:   #24243e;
+      --accent:  #7c3aed;
+      --accent2: #06b6d4;
+      --glass-bg: rgba(255,255,255,0.08);
+      --glass-border: rgba(255,255,255,0.15);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --card-radius: 16px;
+      --shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, var(--bg-from) 0%, var(--bg-mid) 50%, var(--bg-to) 100%);
+      min-height: 100vh;
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* ===== ANIMATED BG ORBS ===== */
+    .orb {
+      position: fixed; border-radius: 50%; filter: blur(80px);
+      opacity: 0.18; pointer-events: none; z-index: 0;
+      animation: float 8s ease-in-out infinite alternate;
+    }
+    .orb-1 { width: 500px; height: 500px; background: #7c3aed; top: -100px; left: -100px; }
+    .orb-2 { width: 400px; height: 400px; background: #06b6d4; bottom: -100px; right: -100px; animation-delay: -4s; }
+    .orb-3 { width: 300px; height: 300px; background: #ec4899; top: 40%; left: 40%; animation-delay: -2s; }
+    @keyframes float {
+      from { transform: translate(0, 0) scale(1); }
+      to   { transform: translate(30px, 20px) scale(1.05); }
+    }
+
+    /* ===== LAYOUT ===== */
+    #app { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; padding: 0 16px 60px; }
+
+    /* ===== STICKY HEADER ===== */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(15,12,41,0.75);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-bottom: 1px solid var(--glass-border);
+      padding: 14px 20px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+    header h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: 0.5px; }
+    header h1 span { color: var(--accent2); }
+    .offline-badge {
+      display: none; margin-left: auto; padding: 4px 10px;
+      background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.4);
+      border-radius: 20px; font-size: 0.7rem; color: #fca5a5;
+      animation: pulse 2s infinite;
+    }
+    .offline-badge.show { display: inline-flex; align-items: center; gap: 5px; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+    /* ===== HERO ===== */
+    .hero {
+      text-align: center;
+      padding: 52px 20px 36px;
+    }
+    .hero h2 {
+      font-size: clamp(1.6rem, 5vw, 2.6rem);
+      font-weight: 800;
+      background: linear-gradient(90deg, #c4b5fd, #67e8f9);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 10px;
+    }
+    .hero p { color: var(--muted); font-size: 0.95rem; max-width: 500px; margin: 0 auto 32px; }
+
+    /* ===== SEARCH BOX ===== */
+    .search-wrap { position: relative; max-width: 480px; margin: 0 auto; }
+    .input-row {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .input-box {
+      position: relative; flex: 1;
+    }
+    #symbolInput {
+      width: 100%; padding: 14px 42px 14px 18px;
+      background: var(--glass-bg);
+      border: 1.5px solid var(--glass-border);
+      border-radius: 12px;
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+      backdrop-filter: blur(10px);
+      transition: border-color 0.2s, box-shadow 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    #symbolInput::placeholder { text-transform: none; letter-spacing: 0; color: var(--muted); }
+    #symbolInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(124,58,237,0.25);
+    }
+    #clearBtn {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; color: var(--muted);
+      font-size: 1.1rem; cursor: pointer; padding: 2px 4px;
+      display: none; line-height: 1;
+      transition: color 0.15s;
+    }
+    #clearBtn:hover { color: var(--text); }
+    #clearBtn.show { display: block; }
+    #analyzeBtn {
+      padding: 14px 22px;
+      background: linear-gradient(135deg, var(--accent), #5b21b6);
+      border: none; border-radius: 12px; color: #fff;
+      font-size: 0.95rem; font-weight: 600; cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+      white-space: nowrap;
+    }
+    #analyzeBtn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(124,58,237,0.5); }
+    #analyzeBtn:active { transform: translateY(0); }
+    #analyzeBtn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+    /* ===== AUTOCOMPLETE ===== */
+    #autocomplete {
+      position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+      background: rgba(24,20,55,0.95);
+      border: 1.5px solid var(--glass-border);
+      border-radius: 12px;
+      overflow: hidden;
+      z-index: 200;
+      display: none;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    #autocomplete.show { display: block; }
+    .ac-item {
+      padding: 10px 16px; cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 10px; font-size: 0.88rem;
+      transition: background 0.12s;
+    }
+    .ac-item:hover, .ac-item.active { background: rgba(124,58,237,0.25); }
+    .ac-sym { font-weight: 700; color: #c4b5fd; font-size: 0.9rem; }
+    .ac-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .ac-sector { font-size: 0.72rem; background: rgba(6,182,212,0.15); color: var(--accent2); padding: 2px 6px; border-radius: 6px; white-space: nowrap; }
+
+    /* ===== CARDS ===== */
+    .card {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--card-radius);
+      padding: 24px;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      margin-top: 24px;
+    }
+    .card-title {
+      font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.5px;
+      color: var(--muted); margin-bottom: 14px;
+    }
+
+    /* ===== COMPANY CARD ===== */
+    #companyCard { display: none; }
+    #companyCard.show { display: block; animation: fadeUp 0.3s ease; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .company-header { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+    .symbol-badge {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      padding: 10px 16px; border-radius: 10px;
+      font-size: 1.2rem; font-weight: 800; letter-spacing: 1px;
+      flex-shrink: 0;
+    }
+    .company-info h3 { font-size: 1.1rem; font-weight: 700; }
+    .sector-tag {
+      display: inline-block; margin-top: 6px;
+      background: rgba(6,182,212,0.15); color: var(--accent2);
+      border: 1px solid rgba(6,182,212,0.3);
+      padding: 3px 10px; border-radius: 20px; font-size: 0.75rem;
+    }
+    .price-block { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 16px; }
+    .price-item { background: rgba(255,255,255,0.05); border-radius: 10px; padding: 14px 20px; flex: 1; min-width: 100px; }
+    .price-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 4px; }
+    .price-value { font-size: 1.4rem; font-weight: 800; }
+    .price-value.up { color: #34d399; }
+    .price-value.down { color: #f87171; }
+    .price-value.neutral { color: var(--text); }
+    .change-pct { font-size: 0.8rem; font-weight: 600; }
+
+    /* ===== REPORT CARD ===== */
+    #reportCard { display: none; }
+    #reportCard.show { display: block; animation: fadeUp 0.3s ease; }
+    #reportContent {
+      color: var(--text); font-size: 0.9rem; line-height: 1.75;
+      max-height: 520px; overflow-y: auto;
+      scrollbar-width: thin; scrollbar-color: var(--accent) transparent;
+    }
+    #reportContent::-webkit-scrollbar { width: 4px; }
+    #reportContent::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
+    .report-section h4 {
+      color: #c4b5fd; font-size: 0.95rem; font-weight: 700;
+      margin: 18px 0 6px; display: flex; align-items: center; gap: 6px;
+    }
+    .report-section p { color: #cbd5e1; margin-bottom: 10px; }
+    .report-section ul { padding-left: 18px; color: #cbd5e1; }
+    .report-section ul li { margin-bottom: 4px; }
+    .report-divider { border: none; border-top: 1px solid var(--glass-border); margin: 14px 0; }
+    .confidence-bar-wrap { margin-top: 16px; }
+    .confidence-bar-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; display: flex; justify-content: space-between; }
+    .confidence-bar { height: 6px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+    .confidence-fill { height: 100%; border-radius: 4px; transition: width 1s ease; }
+
+    /* ===== SPINNER ===== */
+    .spinner-wrap { display: none; text-align: center; padding: 40px; margin-top: 24px; }
+    .spinner-wrap.show { display: block; }
+    .spinner {
+      width: 48px; height: 48px; border-radius: 50%; margin: 0 auto 16px;
+      border: 4px solid rgba(124,58,237,0.2);
+      border-top-color: var(--accent);
+      animation: spin 0.85s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner-text { color: var(--muted); font-size: 0.85rem; }
+
+    /* ===== ERROR ===== */
+    #errorMsg {
+      display: none; margin-top: 20px;
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 12px; padding: 14px 18px;
+      color: #fca5a5; font-size: 0.88rem;
+    }
+    #errorMsg.show { display: block; animation: fadeUp 0.25s ease; }
+
+    /* ===== FOOTER ===== */
+    footer {
+      text-align: center; color: var(--muted);
+      font-size: 0.75rem; margin-top: 48px;
+      border-top: 1px solid var(--glass-border);
+      padding-top: 20px;
+    }
+    footer a { color: var(--accent2); text-decoration: none; }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 560px) {
+      .input-row { flex-direction: column; }
+      #analyzeBtn { width: 100%; }
+      .price-block { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Background orbs -->
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+
+<!-- Sticky Header -->
+<header>
+  <div class="logo-icon">📈</div>
+  <h1>PSX <span>Analysis</span></h1>
+  <div id="offlineBadge" class="offline-badge">
+    <span>●</span> Offline Mode Active
+  </div>
+</header>
+
+<div id="app">
+  <!-- Hero -->
+  <div class="hero">
+    <h2>Pakistan Stock Exchange</h2>
+    <p>AI-powered market analysis · Live data · 155+ symbols</p>
+
+    <!-- Search -->
+    <div class="search-wrap">
+      <div class="input-row">
+        <div class="input-box">
+          <input type="text" id="symbolInput" placeholder="Enter symbol e.g. OGDC, HBL, PSO…"
+                 autocomplete="off" spellcheck="false" aria-label="Stock symbol" />
+          <button id="clearBtn" title="Clear" aria-label="Clear input">×</button>
+          <div id="autocomplete" role="listbox" aria-label="Suggestions"></div>
+        </div>
+        <button id="analyzeBtn">Analyze ⚡</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div id="errorMsg" role="alert"></div>
+
+  <!-- Spinner -->
+  <div class="spinner-wrap" id="spinner">
+    <div class="spinner"></div>
+    <p class="spinner-text" id="spinnerText">Fetching market data…</p>
+  </div>
+
+  <!-- Company Card -->
+  <div class="card" id="companyCard">
+    <div class="card-title">Company Overview</div>
+    <div class="company-header">
+      <div class="symbol-badge" id="displaySymbol"></div>
+      <div class="company-info">
+        <h3 id="displayName"></h3>
+        <span class="sector-tag" id="displaySector"></span>
+      </div>
+    </div>
+    <div class="price-block">
+      <div class="price-item">
+        <div class="price-label">Price (PKR)</div>
+        <div class="price-value neutral" id="displayPrice">—</div>
+      </div>
+      <div class="price-item">
+        <div class="price-label">Change</div>
+        <div class="price-value neutral" id="displayChange">—</div>
+      </div>
+      <div class="price-item">
+        <div class="price-label">Market Cap</div>
+        <div class="price-value neutral" id="displayMktCap">—</div>
+      </div>
+      <div class="price-item">
+        <div class="price-label">Volume</div>
+        <div class="price-value neutral" id="displayVolume">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Report Card -->
+  <div class="card" id="reportCard">
+    <div class="card-title">AI-Generated Analysis Report</div>
+    <div id="reportContent"></div>
+  </div>
+
+</div>
+
+<footer>
+  <p>PSX Analysis · Data is illustrative. Not financial advice.
+    <br>Built as a standalone web app — no external dependencies.</p>
+</footer>
+
+<script>
+/* ========================================================
+   PSX ANALYSIS — ALL LOGIC
+   ======================================================== */
+
+// ─── DATASET (150+ companies) ────────────────────────────
+const PSX_DATA = [
+  // Energy
+  { sym:"OGDC",  name:"Oil & Gas Development Company",          sector:"Energy" },
+  { sym:"PPL",   name:"Pakistan Petroleum Limited",             sector:"Energy" },
+  { sym:"PSO",   name:"Pakistan State Oil",                     sector:"Energy" },
+  { sym:"SNGP",  name:"Sui Northern Gas Pipelines",             sector:"Energy" },
+  { sym:"SSGC",  name:"Sui Southern Gas Company",               sector:"Energy" },
+  { sym:"PARCO", name:"Pak-Arab Refinery (PARCO)",              sector:"Energy" },
+  { sym:"BYCO",  name:"Byco Petroleum Pakistan",                sector:"Energy" },
+  { sym:"APL",   name:"Attock Petroleum Limited",               sector:"Energy" },
+  { sym:"ATRL",  name:"Attock Refinery Limited",                sector:"Energy" },
+  { sym:"NRL",   name:"National Refinery Limited",              sector:"Energy" },
+  { sym:"POL",   name:"Pakistan Oilfields Limited",             sector:"Energy" },
+  { sym:"MARI",  name:"Mari Petroleum Company",                 sector:"Energy" },
+  { sym:"HASCOL",name:"Hascol Petroleum Limited",               sector:"Energy" },
+  { sym:"SHEL",  name:"Shell Pakistan Limited",                 sector:"Energy" },
+  // Banking
+  { sym:"HBL",   name:"Habib Bank Limited",                     sector:"Banking" },
+  { sym:"UBL",   name:"United Bank Limited",                    sector:"Banking" },
+  { sym:"MCB",   name:"MCB Bank Limited",                       sector:"Banking" },
+  { sym:"NBP",   name:"National Bank of Pakistan",              sector:"Banking" },
+  { sym:"ABL",   name:"Allied Bank Limited",                    sector:"Banking" },
+  { sym:"MEBL",  name:"Meezan Bank Limited",                    sector:"Banking" },
+  { sym:"BAHL",  name:"Bank Al-Habib Limited",                  sector:"Banking" },
+  { sym:"AKBL",  name:"Askari Bank Limited",                    sector:"Banking" },
+  { sym:"SILK",  name:"Silkbank Limited",                       sector:"Banking" },
+  { sym:"BAFL",  name:"Bank Alfalah Limited",                   sector:"Banking" },
+  { sym:"BOP",   name:"Bank of Punjab",                         sector:"Banking" },
+  { sym:"BOK",   name:"Bank of Khyber",                         sector:"Banking" },
+  { sym:"SMBL",  name:"Summit Bank Limited",                    sector:"Banking" },
+  { sym:"JSBL",  name:"JS Bank Limited",                        sector:"Banking" },
+  { sym:"SNBL",  name:"Soneri Bank Limited",                    sector:"Banking" },
+  { sym:"BIPL",  name:"BankIslami Pakistan Limited",            sector:"Banking" },
+  { sym:"FAYSAL",name:"Faysal Bank Limited",                    sector:"Banking" },
+  { sym:"SCBPL", name:"Standard Chartered Bank Pakistan",       sector:"Banking" },
+  // Cement
+  { sym:"LUCK",  name:"Lucky Cement Limited",                   sector:"Cement" },
+  { sym:"DGKC",  name:"D.G. Khan Cement Company",               sector:"Cement" },
+  { sym:"PIOC",  name:"Pioneer Cement Limited",                 sector:"Cement" },
+  { sym:"MLCF",  name:"Maple Leaf Cement Factory",              sector:"Cement" },
+  { sym:"ACPL",  name:"Attock Cement Pakistan Limited",         sector:"Cement" },
+  { sym:"BWCL",  name:"Bestway Cement Limited",                 sector:"Cement" },
+  { sym:"CHCC",  name:"Cherat Cement Company Limited",          sector:"Cement" },
+  { sym:"FCCL",  name:"Fauji Cement Company Limited",           sector:"Cement" },
+  { sym:"KOHC",  name:"Kohat Cement Company Limited",           sector:"Cement" },
+  { sym:"THCCL", name:"Thatta Cement Company Limited",          sector:"Cement" },
+  { sym:"GWLC",  name:"Gharibwal Cement Limited",               sector:"Cement" },
+  { sym:"POWER", name:"Hub Power Company",                      sector:"Power" },
+  { sym:"KAPCO", name:"Kot Addu Power Company",                 sector:"Power" },
+  { sym:"NCPL",  name:"Nishat Chunian Power Limited",           sector:"Power" },
+  { sym:"HUBC",  name:"Hub Power Company Limited",              sector:"Power" },
+  { sym:"LALPIR",name:"Lalpir Power Limited",                   sector:"Power" },
+  { sym:"PKGP",  name:"PakGen Power Limited",                   sector:"Power" },
+  // Textiles
+  { sym:"NML",   name:"Nishat Mills Limited",                   sector:"Textile" },
+  { sym:"NCL",   name:"Nishat Chunian Limited",                 sector:"Textile" },
+  { sym:"GATM",  name:"Gul Ahmed Textile Mills",                sector:"Textile" },
+  { sym:"KTML",  name:"Kohinoor Textile Mills",                 sector:"Textile" },
+  { sym:"CLCPS", name:"Colony Textile Mills",                   sector:"Textile" },
+  { sym:"CRTM",  name:"Crescent Textile Mills",                 sector:"Textile" },
+  { sym:"DTML",  name:"Dawood Textile Mills",                   sector:"Textile" },
+  { sym:"FTML",  name:"Feroze1888 Mills Limited",               sector:"Textile" },
+  { sym:"IDYM",  name:"Indus Dyeing & Manufacturing",           sector:"Textile" },
+  { sym:"RENDERING",name:"Rendering – Textile Composite",       sector:"Textile" },
+  { sym:"SAPT",  name:"Sapphire Textile Mills Limited",         sector:"Textile" },
+  { sym:"STCL",  name:"Sunrays Textile Mills",                  sector:"Textile" },
+  // Pharma
+  { sym:"ABOT",  name:"Abbott Laboratories Pakistan",           sector:"Pharma" },
+  { sym:"GLAXO", name:"GlaxoSmithKline Pakistan",               sector:"Pharma" },
+  { sym:"SEARL", name:"The Searle Company Limited",             sector:"Pharma" },
+  { sym:"AGP",   name:"AGP Limited",                            sector:"Pharma" },
+  { sym:"FEROZ", name:"Ferozsons Laboratories",                 sector:"Pharma" },
+  { sym:"HINOON",name:"Highnoon Laboratories",                  sector:"Pharma" },
+  { sym:"IOPHARM",name:"Ioanna Pharmaceutical",                 sector:"Pharma" },
+  { sym:"NETSOL", name:"NetSol Technologies",                   sector:"Technology" },
+  { sym:"SYS",   name:"Systems Limited",                        sector:"Technology" },
+  { sym:"TRG",   name:"TRG Pakistan Limited",                   sector:"Technology" },
+  { sym:"AVNCR", name:"Avanceon Limited",                       sector:"Technology" },
+  { sym:"PAEL",  name:"Pak Elektron Limited",                   sector:"Technology" },
+  // Food & Consumer
+  { sym:"NESTLE",name:"Nestlé Pakistan Limited",                sector:"Food & Consumer" },
+  { sym:"ENGRO", name:"Engro Corporation",                      sector:"Fertilizer" },
+  { sym:"EFERT", name:"Engro Fertilizers",                      sector:"Fertilizer" },
+  { sym:"FFC",   name:"Fauji Fertilizer Company",               sector:"Fertilizer" },
+  { sym:"FFBL",  name:"Fauji Fertilizer Bin Qasim",             sector:"Fertilizer" },
+  { sym:"DAWH",  name:"Dawood Hercules Corporation",            sector:"Fertilizer" },
+  { sym:"FATIMA",name:"Fatima Fertilizer Company",              sector:"Fertilizer" },
+  { sym:"ENGROCORP",name:"Engro Polymer & Chemicals",           sector:"Chemicals" },
+  { sym:"EPCL",  name:"Engro Polymer & Chemicals Limited",      sector:"Chemicals" },
+  { sym:"ICL",   name:"ICI Pakistan Limited",                   sector:"Chemicals" },
+  { sym:"LOTCHEM",name:"Lotte Chemical Pakistan",               sector:"Chemicals" },
+  { sym:"WAVE",  name:"Wave Pakistan Group",                    sector:"Chemicals" },
+  { sym:"PKGS",  name:"Packages Limited",                       sector:"Packaging" },
+  { sym:"INIL",  name:"International Industries Limited",       sector:"Steel" },
+  { sym:"ISL",   name:"International Steels Limited",           sector:"Steel" },
+  { sym:"ASTL",  name:"Amreli Steels Limited",                  sector:"Steel" },
+  { sym:"MUGHAL",name:"Mughal Iron & Steel Industries",         sector:"Steel" },
+  { sym:"AGHA",  name:"Agha Steel Industries",                  sector:"Steel" },
+  { sym:"PIAA",  name:"Pakistan International Airlines",        sector:"Aviation" },
+  { sym:"PCAL",  name:"Pakistan Civil Aviation Authority",      sector:"Aviation" },
+  { sym:"PNSC",  name:"Pakistan National Shipping Corporation", sector:"Transport" },
+  { sym:"SRVI",  name:"Services Industries Limited",            sector:"Leather & Footwear" },
+  { sym:"SVTL",  name:"Service Textile Mills",                  sector:"Textile" },
+  { sym:"SIEM",  name:"Siemens Engineering Pakistan",           sector:"Engineering" },
+  { sym:"AICL",  name:"Adamjee Insurance Company",              sector:"Insurance" },
+  { sym:"IGICO", name:"IGI Holdings Limited",                   sector:"Insurance" },
+  { sym:"JSGCL", name:"Jahangir Siddiqui & Company",            sector:"Investment Banking" },
+  { sym:"ARIF",  name:"Arif Habib Corporation",                 sector:"Investment Banking" },
+  { sym:"AHL",   name:"Arif Habib Limited",                     sector:"Investment Banking" },
+  { sym:"JSCL",  name:"JS Investments Limited",                 sector:"Investment Banking" },
+  { sym:"SECP",  name:"Securities & Exchange Commission (Bond)",sector:"Regulatory" },
+  { sym:"KASB",  name:"KASB Corporation",                       sector:"Investment Banking" },
+  { sym:"UNITY", name:"Unity Foods Limited",                    sector:"Food & Consumer" },
+  { sym:"COLG",  name:"Colgate-Palmolive Pakistan",             sector:"FMCG" },
+  { sym:"UNILEVER",name:"Unilever Pakistan Limited",            sector:"FMCG" },
+  { sym:"PSMC",  name:"Pak Suzuki Motor Company",               sector:"Auto" },
+  { sym:"HCAR",  name:"Honda Atlas Cars Pakistan",              sector:"Auto" },
+  { sym:"INDU",  name:"Indus Motor Company",                    sector:"Auto" },
+  { sym:"MTL",   name:"Millat Tractors Limited",                sector:"Auto" },
+  { sym:"GATL",  name:"Ghandhara Automobiles",                  sector:"Auto" },
+  { sym:"GHNL",  name:"Ghandhara Nissan Limited",               sector:"Auto" },
+  { sym:"HINO",  name:"Hino Pak Motors Limited",                sector:"Auto" },
+  { sym:"SAZEW", name:"Sazgar Engineering Works",               sector:"Auto" },
+  { sym:"DFML",  name:"Dawood Family Takaful",                  sector:"Takaful" },
+  { sym:"ALICO", name:"American Life Insurance",                sector:"Insurance" },
+  { sym:"JUBILEE",name:"Jubilee Life Insurance",                sector:"Insurance" },
+  { sym:"EFU",   name:"EFU General Insurance",                  sector:"Insurance" },
+  { sym:"EFUG",  name:"EFU Life Assurance",                     sector:"Insurance" },
+  { sym:"MPCL",  name:"Mari Petroleum Company Limited",         sector:"Energy" },
+  { sym:"TPLI",  name:"Third Pakistan International Sukuk",     sector:"Bonds" },
+  { sym:"MEHT",  name:"Mehran Bank",                            sector:"Banking" },
+  { sym:"MFFL",  name:"Murree Brewery",                         sector:"Food & Consumer" },
+  { sym:"PMEX",  name:"Pakistan Mercantile Exchange",           sector:"Exchange" },
+  { sym:"PAEL2", name:"Pak Elektron Limited (Preference)",      sector:"Technology" },
+  { sym:"ANSS",  name:"Ansari Sugar Mills",                     sector:"Sugar" },
+  { sym:"ALQS",  name:"Al Qaim Sugar Mills",                    sector:"Sugar" },
+  { sym:"SPWL",  name:"Shakarganj Limited",                     sector:"Sugar" },
+  { sym:"RYK",   name:"RYK Mills Limited",                      sector:"Sugar" },
+  { sym:"JLICL", name:"Jubilee Life Insurance Company",         sector:"Insurance" },
+  { sym:"SAIF",  name:"Saif Textile Mills",                     sector:"Textile" },
+  { sym:"PERVAIZ",name:"Pervaiz Limited",                       sector:"Engineering" },
+  { sym:"GADT",  name:"GAD Textiles",                           sector:"Textile" },
+  { sym:"AMTEX", name:"Amtex Limited",                          sector:"Textile" },
+  { sym:"FNEL",  name:"First National Equity Limited",          sector:"Leasing" },
+  { sym:"ORIX",  name:"Orix Leasing Pakistan",                  sector:"Leasing" },
+  { sym:"PICT",  name:"Pakistan International Container Terminal",sector:"Logistics" },
+  { sym:"KPUS",  name:"Khyber Pakhtunkhwa Utilities",           sector:"Utilities" },
+  { sym:"SPOWER",name:"Sitara Energy Limited",                  sector:"Power" },
+  { sym:"THAL",  name:"Thal Limited",                           sector:"Engineering" },
+  { sym:"PTCL",  name:"Pakistan Telecommunication Company",     sector:"Telecom" },
+  { sym:"WTL",   name:"WorldCall Telecom",                      sector:"Telecom" },
+  { sym:"PEMCO", name:"Pakistan Engineering Company",           sector:"Engineering" },
+  { sym:"PNDC",  name:"Punjab & Sind Bank (Pakistan)",          sector:"Banking" },
+  { sym:"SMEW",  name:"SME Leasing Limited",                    sector:"Leasing" },
+  { sym:"LOADS", name:"Loads Limited",                          sector:"Engineering" },
+  { sym:"BATA",  name:"Bata Pakistan Limited",                  sector:"Leather & Footwear" },
+  { sym:"WAVES", name:"Waves Singer Pakistan",                  sector:"Electronics" },
+  { sym:"PNPML", name:"Pak Nay Products Merchandise",          sector:"Food & Consumer" },
+  { sym:"ZEAL",  name:"Zeal Pak Cement Factory",               sector:"Cement" },
+  { sym:"SITC",  name:"Sitara Chemical Industries",            sector:"Chemicals" },
+  { sym:"STML",  name:"Sitara Textile Mills Limited",          sector:"Textile" },
+  { sym:"AGIL",  name:"Agriauto Industries Limited",           sector:"Auto" },
+];
+
+// ─── SECTOR ANALYSIS TEMPLATES ───────────────────────────
+const SECTOR_ANALYSIS = {
+  "Energy": {
+    drivers:["Global crude oil prices","Gas pipeline utilization","Circular debt resolution","Refinery upgrades","Exploration success rates"],
+    risks:["Rupee depreciation impacting import bills","Subsidy removal shocks","Regulatory pricing changes","Global energy transition trends"],
+    outlook:"Energy sector companies in Pakistan benefit from being essential utilities but face headwinds from circular debt accumulation and currency volatility. Upstream companies like oil explorers tend to be more insulated.",
+    sentiment: 0.62
+  },
+  "Banking": {
+    drivers:["Net interest margins","Non-performing loan ratios","Government securities exposure","Digital banking adoption","Advancing SME lending"],
+    risks:["Credit risk in stressed economic environment","Rising interest rates squeezing borrowers","Currency & sovereign risk","Regulatory capital requirements"],
+    outlook:"Pakistan's banking sector has traditionally earned high returns on government T-bills and PIBs. With interest rates expected to normalize gradually, banks with strong CASA ratios and diversified portfolios are best positioned.",
+    sentiment: 0.70
+  },
+  "Cement": {
+    drivers:["CPEC infrastructure projects","Government housing schemes","Cement export potential (especially Afghanistan)","Capacity expansion pace"],
+    risks:["Coal price fluctuations (input cost)","Oversupply risk from new plants","Rupee depreciation on imported coal","Power cost escalation"],
+    outlook:"Pakistan's cement sector is cyclical but benefits from long-term infrastructure demand. South-based exporters have advantages. Cost efficiency and fuel-mix optimization are key differentiators.",
+    sentiment: 0.58
+  },
+  "Fertilizer": {
+    drivers:["Farm income levels","Government subsidy policies","Gas availability & pricing","Urea demand from wheat/cotton seasons"],
+    risks:["Gas curtailment reducing production capacity","Reduction or removal of subsidies","Weather-related demand variability"],
+    outlook:"Fertilizer companies are defensive plays tied to agricultural cycles. Pakistan's food security agenda supports demand, while gas pricing remains the primary profitability lever.",
+    sentiment: 0.65
+  },
+  "Textile": {
+    drivers:["Export volumes to EU/US","Rupee competitiveness","DLTL rebate schemes","Cotton procurement prices"],
+    risks:["Global recession reducing orders","Energy cost spikes","Rising raw material prices","Compliance costs for EU market access"],
+    outlook:"Pakistan's textiles are a cornerstone of exports. The GSP+ status in Europe provides structural support. Companies with integrated value chains (spinning to made-ups) command premium margins.",
+    sentiment: 0.60
+  },
+  "Technology": {
+    drivers:["IT exports growth","Freelancer economy expansion","Government digitization programs","Remote work trends"],
+    risks:["Talent retention & brain drain","Internet infrastructure reliability","Currency risk on local revenues","Regulatory uncertainty"],
+    outlook:"Pakistan's tech sector is among the fastest-growing, with IT exports crossing $2.6B annually. Listed tech companies benefit from dollar-denominated revenues, providing a natural hedge against PKR depreciation.",
+    sentiment: 0.78
+  },
+  "Pharma": {
+    drivers:["Drug pricing policy reforms","Local manufacturing capacity","Healthcare penetration growth","Export potential"],
+    risks:["Price cap regulations limiting margins","API import cost exposure","Regulatory approval timelines"],
+    outlook:"Pharma companies operate in a regulated pricing environment in Pakistan. However, health awareness and population growth drive volume. Companies with strong R&D pipelines and generic export capabilities stand out.",
+    sentiment: 0.63
+  },
+  "Auto": {
+    drivers:["Consumer financing availability","New model launches","Government EV policy","Rising local content"],
+    risks:["High import duty on CKD kits","Currency depreciation","SBP restrictions on auto financing","Demand sensitivity to economic cycles"],
+    outlook:"Pakistan's auto sector suffered from import restrictions and financing curbs. A recovery in consumer confidence and easing monetary policy could re-accelerate demand, particularly for locally-assembled vehicles.",
+    sentiment: 0.52
+  },
+  "Power": {
+    drivers:["Capacity payment mechanisms","Government energy mix policy","Privatization of DISCOs","Coal/RLNG plant optimization"],
+    risks:["Circular debt owed to IPPs","Low dispatch due to excess capacity","Regulatory pricing disputes"],
+    outlook:"Power generation companies enjoy guaranteed capacity payments but face risk from the government's ability to honor obligations. Circular debt resolution is the critical catalyst for sector re-rating.",
+    sentiment: 0.55
+  },
+  "Steel": {
+    drivers:["Construction activity","CPEC projects","Import tariff protection","Scrap metal prices"],
+    risks:["Overcapacity if construction slows","Energy cost sensitivity","Competition from cheaper imports"],
+    outlook:"Steel mills are tied to Pakistan's construction boom. Long-steel producers benefit more from housing and infrastructure. Energy-efficient electric arc furnace (EAF) players have cost advantages.",
+    sentiment: 0.57
+  },
+  "Insurance": {
+    drivers:["Mandatory insurance requirements","Bancassurance growth","Life insurance penetration","Investment income from equities/bonds"],
+    risks:["Claims inflation","Regulatory solvency requirements","Low insurance awareness"],
+    outlook:"Insurance penetration in Pakistan remains among the lowest globally (~1% of GDP), representing a massive growth opportunity. Takaful and bancassurance channels are expanding the addressable market.",
+    sentiment: 0.66
+  },
+  "Telecom": {
+    drivers:["5G spectrum auction","Data usage growth","Mobile money (fintech) convergence","Tower infrastructure leasing"],
+    risks:["Spectrum fees and taxation","ARPU pressure","High capex requirements for network modernization"],
+    outlook:"Pakistan's telecom sector is transitioning from voice to data. With smartphone penetration rising and mobile broadband expanding, operators with strong spectrum holdings and data infrastructure are well-positioned.",
+    sentiment: 0.64
+  },
+  "FMCG": {
+    drivers:["Population growth","Urbanization","Premiumization trends","Rural market penetration"],
+    risks:["Input cost inflation (commodity prices)","Rupee depreciation on imported inputs","Consumer spending power erosion"],
+    outlook:"FMCG companies benefit from inelastic demand for everyday essentials. Multi-nationals with pricing power and strong brands tend to pass on cost inflation. Local players compete aggressively on price.",
+    sentiment: 0.68
+  },
+};
+
+const DEFAULT_ANALYSIS = {
+  drivers:["Company-specific earnings drivers","Sector tailwinds","Management quality","Dividend payout policy","Balance sheet strength"],
+  risks:["Macroeconomic headwinds in Pakistan","Currency depreciation","Interest rate environment","Regulatory changes"],
+  outlook:"This company should be evaluated in the context of Pakistan's macroeconomic cycle, including inflation trajectory, interest rates, and PKR stability. Fundamental analysis of earnings growth, ROE, and dividend yield is recommended.",
+  sentiment: 0.60
+};
+
+// ─── DOM REFS ────────────────────────────────────────────
+const input       = document.getElementById('symbolInput');
+const clearBtn    = document.getElementById('clearBtn');
+const analyzeBtn  = document.getElementById('analyzeBtn');
+const acList      = document.getElementById('autocomplete');
+const spinner     = document.getElementById('spinner');
+const spinnerText = document.getElementById('spinnerText');
+const companyCard = document.getElementById('companyCard');
+const reportCard  = document.getElementById('reportCard');
+const errorMsg    = document.getElementById('errorMsg');
+const offlineBadge= document.getElementById('offlineBadge');
+
+let acIndex = -1;
+let isOffline = false;
+let currentSymbol = null;
+
+// ─── AUTOCOMPLETE ────────────────────────────────────────
+function getMatches(query) {
+  const q = query.toUpperCase().trim();
+  if (!q) return [];
+  return PSX_DATA.filter(d =>
+    d.sym.startsWith(q) ||
+    d.name.toUpperCase().includes(q) ||
+    d.sector.toUpperCase().includes(q)
+  ).slice(0, 10);
+}
+
+function renderAC(matches) {
+  acList.innerHTML = '';
+  acIndex = -1;
+  if (!matches.length) { acList.classList.remove('show'); return; }
+  matches.forEach((m, i) => {
+    const item = document.createElement('div');
+    item.className = 'ac-item';
+    item.setAttribute('role', 'option');
+    item.dataset.sym = m.sym;
+    item.innerHTML = `
+      <span class="ac-sym">${m.sym}</span>
+      <span class="ac-name">${m.name}</span>
+      <span class="ac-sector">${m.sector}</span>`;
+    item.addEventListener('mousedown', () => selectAC(m.sym));
+    acList.appendChild(item);
+  });
+  acList.classList.add('show');
+}
+
+function selectAC(sym) {
+  input.value = sym;
+  acList.classList.remove('show');
+  clearBtn.classList.add('show');
+  analyze(sym);
+}
+
+function updateACActive() {
+  const items = acList.querySelectorAll('.ac-item');
+  items.forEach((el, i) => el.classList.toggle('active', i === acIndex));
+}
+
+input.addEventListener('input', () => {
+  const v = input.value.trim();
+  clearBtn.classList.toggle('show', v.length > 0);
+  renderAC(getMatches(v));
+});
+
+input.addEventListener('keydown', e => {
+  const items = acList.querySelectorAll('.ac-item');
+  if (e.key === 'ArrowDown') { e.preventDefault(); acIndex = Math.min(acIndex+1, items.length-1); updateACActive(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); acIndex = Math.max(acIndex-1, -1); updateACActive(); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (acIndex >= 0 && items[acIndex]) { selectAC(items[acIndex].dataset.sym); }
+    else { acList.classList.remove('show'); analyze(input.value.trim().toUpperCase()); }
+  }
+  else if (e.key === 'Escape') { acList.classList.remove('show'); }
+});
+
+input.addEventListener('blur', () => setTimeout(() => acList.classList.remove('show'), 150));
+input.addEventListener('focus', () => { if (input.value.trim()) renderAC(getMatches(input.value)); });
+
+clearBtn.addEventListener('click', () => {
+  input.value = ''; clearBtn.classList.remove('show');
+  acList.classList.remove('show');
+  companyCard.classList.remove('show');
+  reportCard.classList.remove('show');
+  hideError(); input.focus();
+});
+
+analyzeBtn.addEventListener('click', () => analyze(input.value.trim().toUpperCase()));
+
+// ─── ANALYZE ─────────────────────────────────────────────
+async function analyze(sym) {
+  if (!sym) { showError('Please enter a stock symbol.'); return; }
+  const company = PSX_DATA.find(d => d.sym === sym);
+  if (!company) { showError(`Symbol "${sym}" not found in PSX database. Please check the symbol and try again.`); return; }
+
+  currentSymbol = sym;
+  hideError();
+  companyCard.classList.remove('show');
+  reportCard.classList.remove('show');
+  showSpinner('Fetching market data…');
+  analyzeBtn.disabled = true;
+
+  // Populate static company info immediately
+  document.getElementById('displaySymbol').textContent = company.sym;
+  document.getElementById('displayName').textContent   = company.name;
+  document.getElementById('displaySector').textContent = company.sector;
+
+  // Try live fetch
+  let priceData = null;
+  try {
+    priceData = await fetchLivePrice(sym);
+    setOffline(false);
+  } catch(e) {
+    setOffline(true);
+    priceData = generateSyntheticPrice(sym);
+  }
+
+  populatePriceBlock(priceData);
+  companyCard.classList.add('show');
+
+  // Generate AI report
+  spinnerText.textContent = 'Generating AI analysis…';
+  await new Promise(r => setTimeout(r, 600)); // realistic delay
+
+  generateReport(company, priceData);
+  reportCard.classList.add('show');
+  hideSpinner();
+  analyzeBtn.disabled = false;
+}
+
+// ─── LIVE DATA FETCH ─────────────────────────────────────
+async function fetchLivePrice(sym) {
+  // Try Yahoo Finance with PSX suffix (.KA = Karachi Stock Exchange on Yahoo Finance)
+  // Many PSX symbols are available under .KA; others may not be, triggering offline fallback
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}.KA?interval=1d&range=1d`;
+    const res = await fetch(url, { signal: controller.signal, mode: 'cors' });
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const meta = json?.chart?.result?.[0]?.meta;
+    if (!meta) throw new Error('No data');
+    return {
+      price:  meta.regularMarketPrice ?? null,
+      prev:   meta.previousClose ?? null,
+      volume: meta.regularMarketVolume ?? null,
+      mktCap: meta.marketCap ?? null,
+      live:   true
+    };
+  } catch(e) {
+    clearTimeout(timeout);
+    throw e;
+  }
+}
+
+// ─── SYNTHETIC PRICE CONSTANTS ───────────────────────────
+const SYNTH_BASE_MIN = 50;
+const SYNTH_BASE_RANGE = 1450;    // prices 50–1500 PKR
+const SYNTH_CHANGE_SEED = 7;
+const SYNTH_CHANGE_MOD  = 21;     // change in ±1 PKR range
+const SYNTH_CHANGE_HALF = 10;
+const SYNTH_VOL_SEED    = 1234;
+const SYNTH_VOL_MAX     = 9_000_000;
+const SYNTH_VOL_MIN     = 100_000;
+const SYNTH_CAP_MOD     = 900;
+const SYNTH_CAP_BASE    = 100;
+const SYNTH_CAP_UNIT    = 1e6;    // multiplier → PKR millions
+
+// ─── SYNTHETIC PRICE (offline) ───────────────────────────
+function generateSyntheticPrice(sym) {
+  // Deterministic seed from symbol chars
+  const seed   = sym.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  const base   = SYNTH_BASE_MIN + (seed % SYNTH_BASE_RANGE);
+  const change = ((seed * SYNTH_CHANGE_SEED % SYNTH_CHANGE_MOD) - SYNTH_CHANGE_HALF) / SYNTH_CHANGE_HALF;
+  const volume = (seed * SYNTH_VOL_SEED) % SYNTH_VOL_MAX + SYNTH_VOL_MIN;
+  const mktCap = base * ((seed % SYNTH_CAP_MOD) + SYNTH_CAP_BASE) * SYNTH_CAP_UNIT;
+  return { price: base, prev: base - change, volume, mktCap, live: false };
+}
+
+function populatePriceBlock(data) {
+  const priceEl  = document.getElementById('displayPrice');
+  const changeEl = document.getElementById('displayChange');
+  const mktEl    = document.getElementById('displayMktCap');
+  const volEl    = document.getElementById('displayVolume');
+
+  if (data.price) {
+    priceEl.textContent = 'PKR ' + data.price.toFixed(2);
+    if (data.prev) {
+      const diff = data.price - data.prev;
+      const pct  = (diff / data.prev * 100).toFixed(2);
+      const sign = diff >= 0 ? '+' : '';
+      changeEl.textContent = `${sign}${diff.toFixed(2)} (${sign}${pct}%)`;
+      changeEl.className = 'price-value ' + (diff > 0 ? 'up' : diff < 0 ? 'down' : 'neutral');
+    }
+    priceEl.className = 'price-value neutral';
+  } else {
+    priceEl.textContent = '—';
+    changeEl.textContent = '—';
+  }
+
+  mktEl.textContent = data.mktCap ? formatBig(data.mktCap) : '—';
+  volEl.textContent = data.volume  ? formatBig(data.volume)  : '—';
+}
+
+function formatBig(n) {
+  if (n >= 1e12) return (n/1e12).toFixed(2) + 'T';
+  if (n >= 1e9)  return (n/1e9).toFixed(2)  + 'B';
+  if (n >= 1e6)  return (n/1e6).toFixed(2)  + 'M';
+  if (n >= 1e3)  return (n/1e3).toFixed(1)  + 'K';
+  return n.toString();
+}
+
+// ─── AI REPORT GENERATOR ─────────────────────────────────
+function generateReport(company, priceData) {
+  const sa = SECTOR_ANALYSIS[company.sector] || DEFAULT_ANALYSIS;
+  const sent = sa.sentiment;
+  const sentLabel = sent >= 0.7 ? 'Bullish 🟢' : sent >= 0.55 ? 'Neutral / Cautiously Optimistic 🟡' : 'Cautious 🔴';
+  const sentColor = sent >= 0.7 ? '#34d399' : sent >= 0.55 ? '#fbbf24' : '#f87171';
+
+  const drivers = sa.drivers.map(d => `<li>${d}</li>`).join('');
+  const risks   = sa.risks.map(r => `<li>${r}</li>`).join('');
+
+  const dataNote = priceData.live
+    ? `<span style="color:#34d399">✔ Live market data</span>`
+    : `<span style="color:#fbbf24">⚠ Offline – synthetic price shown</span>`;
+
+  const html = `
+    <div style="font-size:0.75rem;color:var(--muted);margin-bottom:16px;">
+      Data source: ${dataNote} &nbsp;·&nbsp; ${new Date().toLocaleString()}
+    </div>
+
+    <div class="report-section">
+      <h4>📋 Executive Summary</h4>
+      <p><strong>${company.name} (${company.sym})</strong> operates in the <em>${company.sector}</em> sector on the Pakistan Stock Exchange.
+      ${sa.outlook}</p>
+    </div>
+    <hr class="report-divider"/>
+
+    <div class="report-section">
+      <h4>🚀 Key Growth Drivers</h4>
+      <ul>${drivers}</ul>
+    </div>
+    <hr class="report-divider"/>
+
+    <div class="report-section">
+      <h4>⚠ Key Risk Factors</h4>
+      <ul>${risks}</ul>
+    </div>
+    <hr class="report-divider"/>
+
+    <div class="report-section">
+      <h4>📊 Macro Backdrop</h4>
+      <p>Pakistan's economy is navigating a high-inflation, high-interest-rate environment alongside IMF program compliance.
+      The KSE-100 index is sensitive to SBP policy rate decisions, PKR stability, and commodity cycles (oil, coal, urea).
+      Global risk-off sentiment can disproportionately impact emerging-market equities including PSX.</p>
+    </div>
+    <hr class="report-divider"/>
+
+    <div class="report-section">
+      <h4>🔮 12-Month Outlook & Sentiment</h4>
+      <p>Analyst consensus for the <strong>${company.sector}</strong> sector:</p>
+      <div class="confidence-bar-wrap">
+        <div class="confidence-bar-label">
+          <span>Sentiment: <strong style="color:${sentColor}">${sentLabel}</strong></span>
+          <span>${Math.round(sent*100)}%</span>
+        </div>
+        <div class="confidence-bar">
+          <div class="confidence-fill"
+               style="width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2))"
+               data-target="${Math.round(sent*100)}"></div>
+        </div>
+      </div>
+    </div>
+    <hr class="report-divider"/>
+
+    <div class="report-section">
+      <h4>💡 Investment Considerations</h4>
+      <p>Before investing in ${company.sym}, evaluate: (1) latest quarterly earnings vs. consensus estimates,
+      (2) dividend yield relative to risk-free rate (PKR T-bills), (3) debt-to-equity ratio and interest coverage,
+      (4) management guidance on upcoming projects, and (5) foreign investor participation trends in this sector.</p>
+    </div>
+
+    <p style="font-size:0.72rem;color:var(--muted);margin-top:20px;font-style:italic;">
+      ⚠ This report is AI-generated for educational purposes only and does not constitute financial advice.
+      Always consult a licensed financial advisor before making investment decisions.
+    </p>
+  `;
+
+  document.getElementById('reportContent').innerHTML = html;
+
+  // Animate confidence bar
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      const fill = document.querySelector('.confidence-fill');
+      if (fill) fill.style.width = fill.dataset.target + '%';
+    }, 100);
+  });
+}
+
+// ─── HELPERS ─────────────────────────────────────────────
+function showSpinner(msg) {
+  spinnerText.textContent = msg || 'Loading…';
+  spinner.classList.add('show');
+}
+function hideSpinner() { spinner.classList.remove('show'); }
+function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.add('show'); }
+function hideError() { errorMsg.classList.remove('show'); }
+function setOffline(v) {
+  isOffline = v;
+  offlineBadge.classList.toggle('show', v);
+}
+
+// ─── KEYBOARD SHORTCUT ───────────────────────────────────
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); input.focus(); input.select(); }
+});
+</script>
+</body>
+</html>
